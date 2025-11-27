@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Package build artifact (ZIP)
+        run: npm run zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gh200-app-zip
+          path: dist/app.zip
+          retention-days: 7

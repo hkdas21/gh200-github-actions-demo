@@ -1,0 +1,22 @@
+{
+  "name": "gh200-github-actions-demo",
+  "version": "1.0.0",
+  "description": "GH-200 demo: sample app + GH Actions + GHCR + ACR + Azure Web App",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "jest --ci",
+    "zip": "mkdir -p dist && zip -r dist/app.zip src package.json package-lock.json Dockerfile .dockerignore"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^6.3.4"
+  }
+}

@@ -1,0 +1,84 @@
+name: Container Publish
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  IMAGE_NAME: gh200-demo
+  VERSION: ${{ github.sha }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Meta (tag if ref is a tag)
+        id: meta
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "version=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${{ env.VERSION }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build image
+        run: |
+          docker build \
+            -t ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }} \
+            -t ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest \
+            .
+
+      - name: Login GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push GHCR
+        run: |
+          docker push ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
+          docker push ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Azure login (Service Principal)
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Get ACR login server
+        id: acr
+        run: |
+          ACR_LOGIN_SERVER=$(az acr show -n "${{ secrets.ACR_NAME }}" --query "loginServer" -o tsv)
+          echo "login_server=${ACR_LOGIN_SERVER}" >> $GITHUB_OUTPUT
+
+      - name: Docker login ACR (admin)
+        if: ${{ secrets.ACR_USERNAME && secrets.ACR_PASSWORD }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ steps.acr.outputs.login_server }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Docker login ACR (az acr login)
+        if: ${{ !(secrets.ACR_USERNAME && secrets.ACR_PASSWORD) }}
+        run: |
+          az acr login -n "${{ secrets.ACR_NAME }}"
+
+      - name: Tag + Push to ACR
+        run: |
+          docker tag ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }} \
+                     ${{ steps.acr.outputs.login_server }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
+          docker tag ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest \
+                     ${{ steps.acr.outputs.login_server }}/${{ env.IMAGE_NAME }}:latest
+
+          docker push ${{ steps.acr.outputs.login_server }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
+          docker push ${{ steps.acr.outputs.login_server }}/${{ env.IMAGE_NAME }}:latest

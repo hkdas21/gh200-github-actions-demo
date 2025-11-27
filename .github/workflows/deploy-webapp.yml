@@ -1,0 +1,58 @@
+name: Deploy Web App (ACR Image)
+
+on:
+  workflow_dispatch:
+    inputs:
+      imageTag:
+        description: "Image tag to deploy (e.g., commit SHA or release tag)"
+        required: true
+        default: "latest"
+
+env:
+  IMAGE_NAME: gh200-demo
+  WEBSITES_PORT: "8080"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Resolve ACR login server
+        id: acr
+        run: |
+          ACR_LOGIN_SERVER=$(az acr show -n "${{ secrets.ACR_NAME }}" --query "loginServer" -o tsv)
+          echo "login_server=${ACR_LOGIN_SERVER}" >> $GITHUB_OUTPUT
+
+      - name: Configure Web App container to use ACR image
+        run: |
+          IMAGE="${{ steps.acr.outputs.login_server }}/${{ env.IMAGE_NAME }}:${{ github.event.inputs.imageTag }}"
+          echo "Deploying image: $IMAGE"
+
+          az webapp config appsettings set \
+            --name "${{ secrets.AZURE_WEBAPP_NAME }}" \
+            --resource-group "${{ secrets.AZURE_RG }}" \
+            --settings WEBSITES_PORT=${{ env.WEBSITES_PORT }}
+
+          if [ -n "${{ secrets.ACR_USERNAME }}" ] && [ -n "${{ secrets.ACR_PASSWORD }}" ]; then
+            az webapp config container set \
+              --name "${{ secrets.AZURE_WEBAPP_NAME }}" \
+              --resource-group "${{ secrets.AZURE_RG }}" \
+              --docker-custom-image-name "$IMAGE" \
+              --docker-registry-server-url "https://${{ steps.acr.outputs.login_server }}" \
+              --docker-registry-server-user "${{ secrets.ACR_USERNAME }}" \
+              --docker-registry-server-password "${{ secrets.ACR_PASSWORD }}"
+          else
+            az webapp config container set \
+              --name "${{ secrets.AZURE_WEBAPP_NAME }}" \
+              --resource-group "${{ secrets.AZURE_RG }}" \
+              --docker-custom-image-name "$IMAGE" \
+              --docker-registry-server-url "https://${{ steps.acr.outputs.login_server }}"
+          fi
